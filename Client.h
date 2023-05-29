@@ -5,11 +5,11 @@
 #include<iostream>
 #include<unistd.h>
 
-class Server
+class Client
 {
 private:
     uint64_t _port = 8080;
     const char* _ip = "127.0.0.1";
-public:
-    void Connection();
+ public:
+    void Connection();  
 };
