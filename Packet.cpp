@@ -37,9 +37,25 @@ uint8_t* Packet::MakeAPacketForCalculatingSRC()
   }}; 
 
   for(int index = 0; index < _data.size(); ++index)
-    arrayForCalculatingCRC[index + 7] = _data.at(index);
+    arrayForCalculatingCRC[index + 6] = _data.at(index);
 
   return arrayForCalculatingCRC;
+}
+
+Packet::Packet(std::vector<uint8_t>&data)
+{
+    _type = data.at(2);
+
+    _numberOfPacket = (uint16_t) data[3] << 8 | data[4];
+
+    _lengthOfData = (uint16_t) data[5] << 8 | data[6];
+
+    int index = 0;
+    
+    for(; index < _lengthOfData; ++index)
+        _data.at(index) = data[index + 7]; //Data begins at 7 index
+
+    _summa = (uint16_t) data[index + 7] << 8 | data[index + 8];
 }
 
 Packet::Packet()
@@ -47,7 +63,7 @@ Packet::Packet()
   _type = 0;
   _numberOfPacket = 0;
   _lengthOfData = 0;
-  _summa = CRC16_2(MakeAPacketForCalculatingSRC(), 7);
+  _summa = CRC16_2(MakeAPacketForCalculatingSRC(), 6);
   _data.assign(_lengthOfData, 0);
 }
 
@@ -67,16 +83,16 @@ void Packet::Unpack(uint8_t *data)
     if(data[0] != ((uint8_t) _header >> 8))
       throw "INVALID DATA";
     
-    _type = data[3];
-    
-    _numberOfPacket = (uint16_t) data[4] << 8 | data[5];
+    _type = data[2];
 
-    _lengthOfData = (uint16_t) data[6] << 8 | data[7];
+    _numberOfPacket = (uint16_t) data[3] << 8 | data[4];
+
+    _lengthOfData = (uint16_t) data[5] << 8 | data[6];
 
     int index = 0;
 
     for(; index < _lengthOfData; ++index)
-        _data.at(index) = data[index + 7];
+        _data.at(index) = data[index + 7]; //Data begins at 7 index
 
-    _summa = (uint16_t) data[index] << 8 | data[index + 1];
+    _summa = (uint16_t) data[index + 7] << 8 | data[index + 8];
 }
