@@ -20,7 +20,7 @@ unsigned int CRC16_2(unsigned char *buf, int len)
       crc >>= 1;                    // Just shift right
     }
   }
-  return crc;
+  return crc;   
 }
 
 uint8_t* Packet::MakeAPacketForCalculatingSRC()
@@ -64,5 +64,19 @@ uint8_t* Packet::Pack()
 
 void Packet::Unpack(uint8_t *data)
 {
+    if(data[0] != ((uint8_t) _header >> 8))
+      throw "INVALID DATA";
+    
+    _type = data[3];
+    
+    _numberOfPacket = (uint16_t) data[4] << 8 | data[5];
 
+    _lengthOfData = (uint16_t) data[6] << 8 | data[7];
+
+    int index = 0;
+
+    for(; index < _lengthOfData; ++index)
+        _data.at(index) = data[index + 7];
+
+    _summa = (uint16_t) data[index] << 8 | data[index + 1];
 }
