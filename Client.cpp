@@ -9,7 +9,7 @@ void Client::Connection()
     if(sock = socket(AF_INET, SOCK_STREAM, 0) < 0)
         exit(EXIT_FAILURE);
 
-    sockaddr_in addr; 
+    sockaddr_in addr;
     bzero((char*)&addr, sizeof(addr));
     addr.sin_family = AF_INET; 
     addr.sin_port = htons(_port);
@@ -18,24 +18,27 @@ void Client::Connection()
     
     for(;;)
     {
-        if(socketForConnection = connect(sock, (sockaddr *)&addr, sizeof(addr)) != 1)
+        if(socketForConnection = connect(sock, (sockaddr *)&addr, sizeof(addr)) != -1)
             break;
     }
 
-    char msg[1500]; 
-    std::string data = "Hello";
-    int bytesWritten = 0;
-    int bytesRead = 0;
-
     while(1)
     {
-        memset(&msg, 0, sizeof(msg));
-        
-        strcpy(msg, data.c_str());
+        std::vector<uint8_t>data = {0xAA, 0x55,  TypeOfPackets::Ping, 0x00, 0x00, 0x00, 0xD};
 
-        bytesWritten += send(socketForConnection, (char*)&msg, strlen(msg), 0);
+        std::string myString = "Hello World!";
 
-        bytesRead += recv(socketForConnection, (char*)&msg, sizeof(msg), 0);
+        for(int i = 0; i < myString.length(); ++i)
+            data.push_back((uint8_t) myString[i]);
+
+        data.push_back(0xB2);
+        data.push_back(0xE0);
+
+        Packet*packet = new Packet(data);
+
+        std::vector<uint8_t> resPack;
+
+        packet->Pack(resPack);
     }
 
     close(socketForConnection);
