@@ -52,7 +52,6 @@ void Server::ReceivingMessages(int newSocket)
     uint8_t x;
     PacketParser *packetParser = new PacketParser(&data, &_mutex);
     packetParser->StartProcess();
-    std::string output;
     while (1)
     {
         bytesReceivedPast = bytesReceived;
@@ -64,10 +63,7 @@ void Server::ReceivingMessages(int newSocket)
             _mutex.lock();
             bytesReceived += tmp;
             data.push_back(x);
-            output.push_back(x);
             _mutex.unlock();
         }
-        std::cout << output;
-
     }
 }
