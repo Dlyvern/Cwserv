@@ -1,127 +1,69 @@
-#include "Client.h"
+#include "Server.h"
 
-struct Fabrica
+void Server::Connection()
 {
-private:
-    int _numberOfPacket = 0;
+    const int opt = 1;
 
-public:
-    Packet *CreateARandomPacket()
-    {
-        auto randomNumber = [](int min, int max) -> int
-        {
-            std::random_device dev;
-            std::mt19937 rng(dev());
-            std::uniform_int_distribution<std::mt19937::result_type> dist6(min, max);
-
-            return dist6(rng);
-        };
-
-        std::vector<std::string> messages =
-            {
-                "Hello World!",
-                "Who is there?",
-                "I'm a programmer!"};
-
-        const uint8_t header1 = 0XAA;
-        const uint8_t header2 = 0X55;
-
-        std::unordered_map<int, uint8_t> types =
-            {
-                {0, 0x01},
-                {1, 0x81},
-                {2, 0x02},
-                {3, 0x82},
-                {4, 0x00},
-                {5, 0x80},
-                {6, 0x03},
-                {7, 0x83},
-            };
-
-        // std::vector<uint8_t> data = {0xAA, 0x55, TypeOfPackets::Ping, 0x00, 0x00, 0x00, 0xD};
-
-        std::vector<uint8_t> data;
-
-        data.push_back(header1);
-        data.push_back(header2);
-
-        auto it = types.begin();
-
-        advance(it, randomNumber(0, types.size() - 1));
-
-        data.push_back(it->second);
-
-        if (_numberOfPacket < 9)
-        {
-            data.push_back(0x00);
-            data.push_back((uint8_t)_numberOfPacket);
-        }
-
-        std::string myString = messages.at(randomNumber(0, messages.size() - 1));
-        int size = myString.length();
-        data.push_back(0x00);
-        data.push_back((uint8_t)size);
-
-        for (int i = 0; i < size; ++i)
-            data.push_back((uint8_t)myString[i]);
-
-        uint16_t CRC = CRC16::CRC16_2(data);
-
-        data.push_back({static_cast<uint8_t>(CRC >> 8)});
-        data.push_back({static_cast<uint8_t>(CRC & 0XFF)});
-
-        Packet *packet = new Packet(data);
-
-        _numberOfPacket++;
-
-        return packet;
-    }
-};
-
-void Client::Connection()
-{
     int sock = socket(AF_INET, SOCK_STREAM, 0);
 
+    if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt)) < 0)
+        exit(EXIT_FAILURE);
+
     sockaddr_in addr;
+
     bzero((char *)&addr, sizeof(addr));
+
     addr.sin_family = AF_INET;
     addr.sin_port = htons(_port);
-    addr.sin_addr.s_addr = inet_addr(_ip);
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
+    if (bind(sock, (sockaddr *)&addr, sizeof(addr)) < 0)
+        exit(EXIT_FAILURE);
+
+    listen(sock, _maxLengthOfConnections);
+    _acceptThread = std::thread([this, sock]()
+                                { AcceptingClients(sock); });
+}
+
+void Server::AcceptingClients(int sock)
+{
+    sockaddr_in newAddr; // To handle a new connection with a client
+    socklen_t newAddrSize = sizeof(newAddr);
+    int newSocket;
     for (;;)
     {
-        if (connect(sock, (sockaddr *)&addr, sizeof(addr)) != -1)
-            SendMessage(sock);
+        newSocket = accept(sock, reinterpret_cast<sockaddr *>(&newAddr), &newAddrSize);
+
+        if (newSocket != -1)
+        {
+            _receivingMessagesThread.push_back(std::thread([this, newSocket]()
+                                                   { this->ReceivingMessages(newSocket); }));
+            
+        }
     }
 }
 
-void Client::SendMessage(int &sock)
+void Server::ReceivingMessages(int newSocket)
 {
-    Fabrica *f = new Fabrica();
-
-    Packet *packet = f->CreateARandomPacket();
-
-    unsigned int numberOfSendedBytes = 0;
-
-    int result;
-
-    // std::vector<uint8_t> data = packet->Pack();
-
-    // const char* dataa = (const char*)data.data();
-
-    // std::transform(data.begin(), data.end(), data.begin(), htonl);
-
-    const char *data = "Hello World!";
-
-    numberOfSendedBytes = 0;
-
-    int size = strlen(data);
-
-    while ((result = send(sock, data, size, 0)) > 0)
+    unsigned int bytesReceived = 0;
+    unsigned int bytesReceivedPast = 0;
+    int tmp = 0;
+    std::vector<uint8_t> data;
+    uint8_t x;
+    PacketParser *packetParser = new PacketParser(&data, &_mutex);
+    packetParser->StartProcess();
+    while (1)
     {
-        data += result;
-        size -= result;
+        bytesReceivedPast = bytesReceived;
 
-        numberOfSendedBytes += result;
+        tmp = recv(newSocket, &x, 1, 0);
+
+        if (tmp > 0)
+        {
+            _mutex.lock();
+            bytesReceived += tmp;
+            data.push_back(x);
+            _mutex.unlock();
+        }
     }
 }
