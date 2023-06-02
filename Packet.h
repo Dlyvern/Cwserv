@@ -1,12 +1,13 @@
 #ifndef PACKET_H
 
+#define PACKET_H
+
 #include<cstdint>
 #include<vector>
 #include<fstream>
 #include<ostream>
 #include <bitset>
-
-unsigned int CRC16_2(std::vector<uint8_t>&buf);
+#include"CRC16.h"
 
 enum TypeOfPackets
 {
@@ -36,9 +37,9 @@ public:
 
     Packet(std::vector<uint8_t>&data);
     
-    void Pack(std::vector<uint8_t>&packedPacket);
+    std::vector<uint8_t> Pack();
 
-    void Unpack(std::vector<uint8_t>&data);
+    bool Unpack(std::vector<uint8_t>&data);
 };
 
 #endif
