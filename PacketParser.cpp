@@ -1,34 +1,12 @@
 #include"PacketParser.h"
 
-unsigned int CRC16_2(const std::vector<uint8_t>&buf, int len)
-{  
-  unsigned int crc = 0xFFFF;
-
-  for (int pos = 0; pos < len; pos++)
-  {
-
-  crc ^= (unsigned int)buf[pos];
-
-  for (int i = 8; i != 0; i--) 
-  {    
-    if ((crc & 0x0001) != 0)
-    {      
-      crc >>= 1;          
-      crc ^= 0xA001;
-    }
-    else                            
-      crc >>= 1;
-    }
-  }
-  return crc;   
-}
-
-
-PacketParser::PacketParser(const std::vector<uint8_t>&input)
+PacketParser::PacketParser(std::vector<uint8_t>*input, std::mutex *mutex)
 {
     _damagePacketsCounter = 0;
     _input = input;
     _successfulPackets = 0;
+    _run = false;
+    _mutex = mutex;
 }
 
 void PacketParser::AddASuccessfulPacketToTheQueue(Packet*packet)
@@ -38,60 +16,76 @@ void PacketParser::AddASuccessfulPacketToTheQueue(Packet*packet)
 
 void PacketParser::StartProcess()
 {
+    _run = true;
     _workingThread = std::thread([this]()->void{this->Run();}); 
 }
 
 void PacketParser::StopProceess()
 {
+    _run = false;
     _workingThread.~thread();
 }
 
 void PacketParser::Run()
 {
-    while (true)
+    while (_run)
     {   
-        if(_input.at(0) != ((uint8_t) 0xAA55 >> 8))
+        if(_input->size() <= 9)
+            continue;
+
+        if(_input->at(0) != (uint8_t)(0XAA55 >> 8))
         {
-            _mutex.lock();
-            _input.erase(_input.begin());
-            _mutex.unlock();
+            _mutex->lock();
+            _input->erase(_input->begin());
+            _mutex->unlock();
             continue;
         }
 
-        if(_input.at(1) != 0xAA55 &0XFF)
+        if(_input->at(1) != (uint8_t) (0xAA55 &0XFF))
         {
-            _mutex.lock();
-            _input.erase(_input.begin(), _input.begin() + 1);
-            _mutex.unlock();
+            _mutex->lock();
+            _input->erase(_input->begin(), _input->begin() + 1);
+            _mutex->unlock();
             continue;
         }
-        
-        uint16_t sizeOfData = (uint16_t) _input[5] << 8 | _input[6];
 
-        uint16_t CRC = CRC16_2(_input, sizeOfData + 7);
+        uint16_t sizeOfData = {static_cast<uint16_t>(_input->at(5) << 8 | _input->at(6))};
 
-        uint16_t CRCOfInput = (uint16_t) _input[sizeOfData + 7] << 8 | _input[sizeOfData + 8];
+        std::vector<uint8_t>dataForCRC;
+
+        for(int index = 0; index < 6 + sizeOfData; ++index)
+            dataForCRC.push_back(_input->at(index));
+
+        uint16_t CRC = CRC16::CRC16_2(dataForCRC);
+
+        dataForCRC.clear();
+        dataForCRC.shrink_to_fit();
+
+        uint16_t CRCOfInput = {static_cast<uint16_t>(_input->at(sizeOfData + 6) << 8 | _input->at(sizeOfData + 7))};
 
         if(CRC != CRCOfInput)
         {
-            _mutex.lock();
-            _input.erase(_input.begin(), _input.begin() + sizeOfData + 9);
-            _mutex.unlock();
+            _mutex->lock();
+            _input->erase(_input->begin(), _input->begin() + sizeOfData + 7);
+            _mutex->unlock();
             continue;
         }
 
         std::vector<uint8_t>dataForPacket;
         
-        for(int index = 0; index < sizeOfData + 9; ++index)
-            dataForPacket.at(index) = _input.at(index + 9);
+        for(int index = 0; index < sizeOfData + 8; ++index)
+            dataForPacket.push_back(_input->at(index));
         
 
         Packet *packet = new Packet(dataForPacket);
 
         AddASuccessfulPacketToTheQueue(packet);
 
-        _mutex.lock();
-        _input.erase(_input.begin(), _input.begin() + sizeOfData + 9);
-        _mutex.unlock();
+        _mutex->lock();
+        _input->erase(_input->begin(), _input->begin() + sizeOfData + 8);
+        _mutex->unlock();
+
+        dataForPacket.clear();
+        dataForPacket.shrink_to_fit();
     }
 }
