@@ -1,5 +1,7 @@
 #ifndef CLIENT_H
 
+#define CLIENT_H
+
 #ifndef PACKET_PARSER_H
 #include"PacketParser.h"
 #endif
@@ -20,25 +22,44 @@
 #include <cstring>
 #include<iostream>
 #include<iomanip>
-#include<unordered_map>
-#include<random>
-
 #include<mutex>
+#include"Fabrica.h"
 
 std::string ByteToHex(std::vector<uint8_t>&data);
 
 class Client
 {
 private:
-    uint16_t _port = 8080;
-    const char* _ip = "127.0.0.1";
-    // "192.168.31.152";
-    //"127.0.0.1";
+    int _sock;
+    struct sockaddr_in _addrInfo;
+    socklen_t _sizeAddrInfo;
+    int _id;
+    int _port;
+    const char* _ip;
+    bool _connected;
+    bool _alive;
+    
     std::thread _sendingThread;
     std::thread _receivingThread;
-    void SendMessage(int&sock);
+    void SendMessage();
+    void Initialization();
  public:
-    void Connection();  
+
+    Client(int id, int port, std::string ip);
+
+    void Start();
+
+    void Disconnect();
+
+    uint16_t GetPort();
+
+    bool GetStatusConnection();
+
+    bool GetStatusAlive();
+
+    int GetId();
+
+    ~Client();
 };
 
 
