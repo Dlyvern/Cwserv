@@ -1,124 +1,109 @@
 #include "Client.h"
 
-struct Fabrica
+void Client::SendMessage()
 {
-private:
-    int _numberOfPacket = 0;
+    std::unique_ptr<Packet> packet;
+    unsigned int bytesSent = 0;
+    std::vector<uint8_t> dataToSent;
+    const char *ptrDataToSent; // Because we can't send data using vector ;(
+    int sizeOfData;
 
-public:
-    Packet *CreateARandomPacket()
+    while (_connected)
     {
-        auto randomNumber = [](int min, int max) -> int
+        packet = Fabrica::CreateARandomPacket();
+
+        dataToSent = packet->Pack();
+
+        ptrDataToSent = (const char *)&dataToSent.at(0);
+
+        sizeOfData = strlen(ptrDataToSent);
+
+        _alive = true;
+
+        while (bytesSent < dataToSent.size())
         {
-            std::random_device dev;
-            std::mt19937 rng(dev());
-            std::uniform_int_distribution<std::mt19937::result_type> dist6(min, max);
+            int result = send(_sock, ptrDataToSent, sizeOfData, 0);
 
-            return dist6(rng);
-        };
-
-        std::vector<std::string> messages =
+            if (result > 0)
             {
-                "Hello World!",
-                "Who is there?",
-                "I'm a programmer!"};
-
-        const uint8_t header1 = 0XAA;
-        const uint8_t header2 = 0X55;
-
-        std::unordered_map<int, uint8_t> types =
-            {
-                {0, 0x01},
-                {1, 0x81},
-                {2, 0x02},
-                {3, 0x82},
-                {4, 0x00},
-                {5, 0x80},
-                {6, 0x03},
-                {7, 0x83},
-            };
-
-        // std::vector<uint8_t> data = {0xAA, 0x55, TypeOfPackets::Ping, 0x00, 0x00, 0x00, 0xD};
-
-        std::vector<uint8_t> data;
-
-        data.push_back(header1);
-        data.push_back(header2);
-
-        auto it = types.begin();
-
-        advance(it, randomNumber(0, types.size() - 1));
-
-        data.push_back(it->second);
-
-        if (_numberOfPacket < 9)
-        {
-            data.push_back(0x00);
-            data.push_back((uint8_t)_numberOfPacket);
+                ptrDataToSent += result; // Moving ptr
+                sizeOfData -= result;
+                bytesSent += result;
+            }
         }
+        ptrDataToSent = nullptr;
 
-        std::string myString = messages.at(randomNumber(0, messages.size() - 1));
-        int size = myString.length();
-        data.push_back(0x00);
-        data.push_back((uint8_t)size);
-
-        for (int i = 0; i < size; ++i)
-            data.push_back((uint8_t)myString[i]);
-
-        uint16_t CRC = CRC16::CRC16_2(data);
-
-        data.push_back({static_cast<uint8_t>(CRC >> 8)});
-        data.push_back({static_cast<uint8_t>(CRC & 0XFF)});
-
-        Packet *packet = new Packet(data);
-
-        _numberOfPacket++;
-
-        return packet;
-    }
-};
-
-void Client::Connection()
-{
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-
-    sockaddr_in addr;
-    bzero((char *)&addr, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(_port);
-    addr.sin_addr.s_addr = inet_addr(_ip);
-
-    for (;;)
-    {
-        if (connect(sock, (sockaddr *)&addr, sizeof(addr)) != -1)
-            SendMessage(sock);
+        dataToSent.clear();
+        dataToSent.shrink_to_fit();
+        bytesSent = 0;
+        _alive = false;
+        // To avoid memory leak
+        Packet *rawPtr = packet.release();
+        sizeOfData = 0;
+        delete (rawPtr);
     }
 }
 
-void Client::SendMessage(int &sock)
+Client::Client(int id, int port, std::string ip) : _id(id), _port(port), _addrInfo{0}, _sock(0), _connected(false), _alive(false)
 {
-    Fabrica *f = new Fabrica();
+    //_ip = ip.c_str();
+    _ip = "192.168.31.233";
+    _sizeAddrInfo = sizeof(_addrInfo);
+}
 
-    Packet *packet = f->CreateARandomPacket();
+void Client::Initialization()
+{
+    bzero((char *)&_addrInfo, _sizeAddrInfo);
+    _addrInfo.sin_family = AF_INET;
+    _addrInfo.sin_port = htons(_port);
+    _addrInfo.sin_addr.s_addr = inet_addr(_ip);
 
-    unsigned int numberOfSendedBytes = 0;
+    _sock = socket(AF_INET, SOCK_STREAM, 0);
 
-    int result;
+    if ((connect(_sock, (sockaddr *)&_addrInfo, _sizeAddrInfo)) < 0)
+        exit(EXIT_FAILURE);
 
-    std::vector<uint8_t> data = packet->Pack();
+    _connected = true;
+}
 
-    const char *data2 = (const char*)&data.at(0);
+void Client::Start()
+{
+    Initialization();
 
-    int size = strlen(data2);
-    // std::transform(data.begin(), data.end(), data.begin(), htonl);
+    _sendingThread = std::thread([this]()
+                                 { SendMessage(); });
+}
 
-    // const char *data = "Hello World!";
+Client::~Client()
+{
+    _sendingThread.~thread();
+    _receivingThread.~thread();
+    close(_sock);
+}
 
-    while ((result = send(sock, data2, size, 0)) > 0)
-    {
-        data2 += result;
-        size -= result;
+void Client::Disconnect()
+{
+    _connected = false;
+    _alive = false;
+    close(_sock);
+}
 
-        numberOfSendedBytes += result;
-    }
+bool Client::GetStatusConnection()
+{
+    return _connected;
+}
+
+bool Client::GetStatusAlive()
+{
+    return _alive;
+}
+
+uint16_t Client::GetPort()
+{
+    return _addrInfo.sin_port;
+}
+
+int Client::GetId()
+{
+    return _id;
 }
