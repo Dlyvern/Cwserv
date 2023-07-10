@@ -1,83 +1,80 @@
 #include "Client.h"
 
-void Client::SendMessage()
+Client::Client(uint16_t id, uint16_t port, const char * ip, int socket, SafeVectorPackets* output) : _id{id}, _port{port}, _sock{socket}, _output{output}
 {
-    std::unique_ptr<Packet> packet;
-    unsigned int bytesSent = 0;
-    std::vector<uint8_t> dataToSent;
-    const char *ptrDataToSent; // Because we can't send data using vector ;(
-    int sizeOfData;
-
-    while (_connected)
-    {
-        packet = Fabrica::CreateARandomPacket();
-
-        dataToSent = packet->Pack();
-
-        ptrDataToSent = (const char *)&dataToSent.at(0);
-
-        sizeOfData = strlen(ptrDataToSent);
-
-        _alive = true;
-
-        while (bytesSent < dataToSent.size())
-        {
-            int result = send(_sock, ptrDataToSent, sizeOfData, 0);
-
-            if (result > 0)
-            {
-                ptrDataToSent += result; // Moving ptr
-                sizeOfData -= result;
-                bytesSent += result;
-            }
-        }
-        ptrDataToSent = nullptr;
-
-        dataToSent.clear();
-        dataToSent.shrink_to_fit();
-        bytesSent = 0;
-        _alive = false;
-        // To avoid memory leak
-        Packet *rawPtr = packet.release();
-        sizeOfData = 0;
-        delete (rawPtr);
-    }
-}
-
-Client::Client(int id, int port, std::string ip) : _id(id), _port(port), _addrInfo{0}, _sock(0), _connected(false), _alive(false)
-{
-    //_ip = ip.c_str();
-    _ip = "192.168.31.233";
+    _ip = ip;
     _sizeAddrInfo = sizeof(_addrInfo);
-}
-
-void Client::Initialization()
-{
-    bzero((char *)&_addrInfo, _sizeAddrInfo);
-    _addrInfo.sin_family = AF_INET;
-    _addrInfo.sin_port = htons(_port);
-    _addrInfo.sin_addr.s_addr = inet_addr(_ip);
-
-    _sock = socket(AF_INET, SOCK_STREAM, 0);
-
-    if ((connect(_sock, (sockaddr *)&_addrInfo, _sizeAddrInfo)) < 0)
-        exit(EXIT_FAILURE);
-
-    _connected = true;
 }
 
 void Client::Start()
 {
-    Initialization();
+    _connected = true;
+    _futureReader = std::async(std::launch::async, [this]{Reader();});
+}
 
-    _sendingThread = std::thread([this]()
-                                 { SendMessage(); });
+uint16_t Client::GetId() const
+{
+    return _id;
+}
+
+void Client::Reader() const
+{
+    while(_connected)
+    {
+        printf("Reading the message\n");
+        long received_bytes{0};
+        long result{0};
+        SafeVectorData data;
+        uint8_t x;
+
+       PacketParser packetParser(data, *_output);
+       packetParser.StartProcess();
+
+        while (result != -1)
+        {
+            result = recv(_sock, &x, 1, 0);
+            data.Push_back(x);
+            received_bytes += result;
+        }
+
+        packetParser.StopProcess();
+    }
+}
+
+void Client::Sender(std::vector<std::shared_ptr<Packet>> &packetsToSend)
+{
+    while(_connected)
+    {
+        for(const auto &packet : packetsToSend)
+        {
+            std::vector<uint8_t> dataToSend = packet->Pack();
+
+            _futureSendPacket.push_back(std::async(std::launch::async, [&, this]
+            {
+                uint16_t sent_bytes{0};
+                long result;
+                const char *ptr_data_to_sent; // Because we can't send data using vector ;(
+                uint16_t size_of_data;
+
+                ptr_data_to_sent = (const char *)&dataToSend[0];
+
+                size_of_data = strlen(ptr_data_to_sent);
+
+                while (sent_bytes < dataToSend.size())
+                {
+                    if((result = send(_sock, ptr_data_to_sent, size_of_data, 0)) == -1) break;
+
+                    ptr_data_to_sent += result; // Moving ptr
+                    size_of_data -= result;
+                    sent_bytes += result;
+                }
+            }));
+        }
+    }
 }
 
 Client::~Client()
 {
-    _sendingThread.~thread();
-    _receivingThread.~thread();
     close(_sock);
 }
 
@@ -86,24 +83,4 @@ void Client::Disconnect()
     _connected = false;
     _alive = false;
     close(_sock);
-}
-
-bool Client::GetStatusConnection()
-{
-    return _connected;
-}
-
-bool Client::GetStatusAlive()
-{
-    return _alive;
-}
-
-uint16_t Client::GetPort()
-{
-    return _addrInfo.sin_port;
-}
-
-int Client::GetId()
-{
-    return _id;
 }
